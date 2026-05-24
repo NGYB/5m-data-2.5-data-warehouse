@@ -1,0 +1,88 @@
+# .github/workflows/dbt-ci.yml
+#
+# Runs dbt snapshot → dbt run → dbt test on the liquor_sales project.
+# Triggered on every push / PR to main, or manually via the Actions tab.
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   GCP_PROJECT_ID     – your BigQuery project ID
+#   GCP_SA_KEY         – full JSON content of a GCP service-account key
+
+name: dbt CI – liquor_sales
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "liquor_sales/**"   # only fire when liquor_sales files change
+  pull_request:
+    branches: [main]
+    paths:
+      - "liquor_sales/**"
+  workflow_dispatch:        # lets you trigger manually from the Actions tab
+
+jobs:
+  dbt-check:
+    name: snapshot → run → test
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python + dbt-bigquery ───────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dbt-bigquery
+        run: pip install dbt-bigquery
+
+      # ── 3. Write GCP service-account key to disk ───────────────────────────
+      - name: Write GCP credentials
+        run: |
+          mkdir -p $HOME/.gcp
+          echo '${{ secrets.GCP_SA_KEY }}' > $HOME/.gcp/sa_key.json
+
+      # ── 4. dbt deps (install packages if packages.yml exists) ─────────────
+      - name: dbt deps
+        working-directory: liquor_sales
+        env:
+          DBT_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DBT_KEYFILE_PATH: /home/runner/.gcp/sa_key.json
+        run: dbt deps
+
+      # ── 5. dbt snapshot ────────────────────────────────────────────────────
+      - name: dbt snapshot
+        working-directory: liquor_sales
+        env:
+          DBT_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DBT_KEYFILE_PATH: /home/runner/.gcp/sa_key.json
+        run: dbt snapshot
+
+      # ── 6. dbt run ─────────────────────────────────────────────────────────
+      - name: dbt run
+        working-directory: liquor_sales
+        env:
+          DBT_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DBT_KEYFILE_PATH: /home/runner/.gcp/sa_key.json
+        run: dbt run
+
+      # ── 7. dbt test ────────────────────────────────────────────────────────
+      - name: dbt test
+        working-directory: liquor_sales
+        env:
+          DBT_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DBT_KEYFILE_PATH: /home/runner/.gcp/sa_key.json
+        run: dbt test
+
+      # ── 8. Upload dbt logs on failure ──────────────────────────────────────
+      - name: Upload dbt logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-logs
+          path: liquor_sales/logs/
+          retention-days: 7
+
