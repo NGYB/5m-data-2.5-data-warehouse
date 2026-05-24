@@ -22,7 +22,7 @@ on:
 
 jobs:
   dbt-check:
-    name: snapshot → run → test
+    name: snapshot → run
     runs-on: ubuntu-latest
 
     steps:
